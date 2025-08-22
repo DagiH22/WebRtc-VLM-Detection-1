@@ -40,6 +40,10 @@ export default function Host() {
   const pcBackendRef = useRef<RTCPeerConnection | null>(null);
   const backendConnectedRef = useRef(false);
 
+  // Metrics buffer
+  const metricsBuffer: any[] = [];
+  (window as any).metricsBuffer = metricsBuffer;
+
   // ----- 1) Host <-> Mobile -----
   useEffect(() => {
     const pcMobile = new RTCPeerConnection(STUN_SERVERS);
@@ -69,14 +73,11 @@ export default function Host() {
     const pcBackend = new RTCPeerConnection(STUN_SERVERS);
     pcBackendRef.current = pcBackend;
 
-    // Limit frames sent to backend (~10-15 FPS)
     const limitedTrack = createFrameLimitedTrack(remoteStream, 15);
     pcBackend.addTrack(limitedTrack);
 
-    // Ensure bidirectional m=video
     pcBackend.addTransceiver("video", { direction: "sendrecv" });
 
-    // Receive processed video from backend
     pcBackend.ontrack = (event) => {
       const stream = event.streams && event.streams[0];
       if (stream) {
@@ -86,7 +87,21 @@ export default function Host() {
     };
 
     backendConnectedRef.current = true;
-    connectToBackend(pcBackend).catch((err) => {
+    connectToBackend(pcBackend, (raw: any) => {
+      try {
+        const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+        const displayTs = Date.now();
+        metricsBuffer.push({
+          frame_id: data.frame_id,
+          capture_ts: data.capture_ts,
+          recv_ts: data.recv_ts,
+          inference_ts: data.inference_ts,
+          overlay_display_ts: displayTs,
+        });
+      } catch (err) {
+        console.error("Failed to parse backend data:", err);
+      }
+    }).catch((err) => {
       console.error("connectToBackend error:", err);
       backendConnectedRef.current = false;
     });

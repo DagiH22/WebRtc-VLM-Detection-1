@@ -3,6 +3,7 @@ import json
 import time
 import asyncio
 from typing import List, Optional
+from pathlib import Path
 
 import numpy as np
 import av
@@ -18,10 +19,9 @@ from aiortc.contrib.media import MediaBlackhole
 
 # -------------------- Config --------------------
 INFER_EVERY_N_FRAMES = int(os.getenv("INFER_EVERY_N_FRAMES", "3"))
+METRICS_FILE = Path("metrics.json")  # metrics output
 
 # -------------------- Load YOLO once --------------------
-# Using ultralytics/yolov5 via torch.hub (same as you had), small model for speed
-# If you have yolov5n.pt locally, point to it with `path="yolov5n.pt"`
 print("Loading YOLOv5 model...")
 _yolo_model = torch.hub.load("ultralytics/yolov5", "custom", path="yolov5n.pt", force_reload=False)
 _yolo_model.eval()
@@ -31,7 +31,7 @@ print("YOLOv5 model loaded.")
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # dev-friendly; tighten in prod
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,7 +43,7 @@ class Offer(BaseModel):
 
 pcs: List[RTCPeerConnection] = []
 
-
+# -------------------- YOLO Overlay Track with metrics --------------------
 class YOLOOverlayTrack(MediaStreamTrack):
     kind = "video"
 
@@ -54,6 +54,10 @@ class YOLOOverlayTrack(MediaStreamTrack):
         self.target_fps = target_fps
         self._last_send_time = 0.0
 
+        # Metrics collection
+        self.metrics = []
+        self.bench_start_time = time.time()
+
     async def recv(self) -> av.VideoFrame:
         while True:
             frame: av.VideoFrame = await self.track.recv()
@@ -62,17 +66,49 @@ class YOLOOverlayTrack(MediaStreamTrack):
 
             # Only process/send if enough time has passed
             if now - self._last_send_time < interval:
-                continue  # drop this frame completely (never processed or sent)
+                continue
 
             self.frame_id += 1
             self._last_send_time = now
 
-            # Convert to ndarray for YOLO
+            # Convert to ndarray
             img_bgr = frame.to_ndarray(format="bgr24")
+            recv_ts = int(time.time() * 1000)  # ms
 
-            # Run YOLO overlay only on selected frames
+            # YOLO inference
+            t0 = time.time()
             results = _yolo_model(img_bgr)
+            t1 = time.time()
+            inference_ts = int(t1 * 1000)
+
+            # Draw detections
             drawn = results.render()[0]
+
+            # Record metrics
+            self.metrics.append({
+                "frame_id": self.frame_id,
+                "capture_ts": int(frame.pts * frame.time_base * 1000),  # approximate
+                "recv_ts": recv_ts,
+                "inference_ts": inference_ts,
+                "detections": [
+                    {
+                        "label": results.names[int(cls)],
+                        "score": float(conf),
+                        "xmin": float(box[0] / frame.width),
+                        "ymin": float(box[1] / frame.height),
+                        "xmax": float(box[2] / frame.width),
+                        "ymax": float(box[3] / frame.height)
+                    }
+                    for *box, conf, cls in results.xyxy[0].cpu().numpy()
+                ],
+            })
+
+            # Save metrics every 30s
+            if time.time() - self.bench_start_time >= 30:
+                with METRICS_FILE.open("w") as f:
+                    json.dump(self.metrics, f, indent=2)
+                self.bench_start_time = time.time()
+                self.metrics = []
 
             # Convert back to VideoFrame
             out = av.VideoFrame.from_ndarray(drawn, format="bgr24")
@@ -86,11 +122,10 @@ async def offer(offer: Offer):
     pc = RTCPeerConnection()
     pcs.append(pc)
 
-    # Audio blackhole to avoid warnings
+    # Audio blackhole
     blackhole = MediaBlackhole()
     await blackhole.start()
 
-    # Diagnostics
     @pc.on("connectionstatechange")
     async def on_conn_state_change():
         print("PC connection state:", pc.connectionState)
@@ -100,8 +135,6 @@ async def offer(offer: Offer):
             except Exception:
                 pass
 
-    # Track handling: when we receive a video track from the host,
-    # wrap it with YOLOOverlayTrack and send the processed track back.
     @pc.on("track")
     def on_track(track: MediaStreamTrack):
         print("Track received:", track.kind)
@@ -115,7 +148,6 @@ async def offer(offer: Offer):
         async def on_ended():
             print("Track ended:", track.kind)
 
-    # Set remote description & generate answer
     await pc.setRemoteDescription(RTCSessionDescription(sdp=offer.sdp, type=offer.type))
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
@@ -124,5 +156,4 @@ async def offer(offer: Offer):
 
 
 if __name__ == "__main__":
-    # Run on all interfaces for local LAN testing if needed
     uvicorn.run(app, host="0.0.0.0", port=8000)
