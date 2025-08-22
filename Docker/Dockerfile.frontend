@@ -1,0 +1,16 @@
+FROM node:23.9.0
+
+WORKDIR /app
+
+# Install deps
+COPY frontend/package*.json ./
+RUN npm install
+
+# Copy source
+COPY frontend .
+
+# Expose Vite dev port
+EXPOSE 5173
+
+# Run Vite dev server
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
