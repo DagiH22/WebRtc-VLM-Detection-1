@@ -313,3 +313,6 @@ coverage.xml
 *.rar
 *.tmp
 *.bak
+!server/yolov5n.pt
+!frontend/src/models/yolov5n-seg.pt
+!frontend/src/models/yolov5n-seg.onnx
