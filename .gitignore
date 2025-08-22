@@ -205,3 +205,111 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+# -------------------
+# Node / Frontend
+# -------------------
+node_modules/
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.vitepress/
+.webpack/
+.cache/
+.parcel-cache/
+.yarn/*
+.pnp.*
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.swp
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# -------------------
+# Python / Backend
+# -------------------
+# Virtual environments
+venv/
+env/
+.venv/
+server/venv/
+
+# Bytecode + cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.cache/
+.ipynb_checkpoints/
+
+# ML / DL models
+*.pt
+*.pth
+*.onnx
+*.weights
+*.pb
+*.tflite
+*.ckpt
+
+# Data files
+*.csv
+*.tsv
+*.h5
+*.hdf5
+*.pkl
+*.joblib
+*.npy
+*.npz
+
+# Build / Packaging
+build/
+dist/
+downloads/
+eggs/
+*.egg-info/
+wheels/
+share/python-wheels/
+MANIFEST
+
+# PyInstaller
+*.spec
+
+# Coverage / Testing
+.coverage
+.coverage.*
+.tox/
+.nox/
+htmlcov/
+nosetests.xml
+coverage.xml
+
+# Misc archives
+*.zip
+*.tar.gz
+*.rar
+*.tmp
+*.bak
