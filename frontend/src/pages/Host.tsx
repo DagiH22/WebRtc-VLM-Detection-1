@@ -7,7 +7,10 @@ import { Button } from "../ui/button";
 import { Copy } from "lucide-react";
 
 // ----------------- Frame limiter helper -----------------
-function createFrameLimitedTrack(stream: MediaStream, targetFps: number = 15): MediaStreamTrack {
+function createFrameLimitedTrack(
+  stream: MediaStream,
+  targetFps: number = 10,
+): MediaStreamTrack {
   const video = document.createElement("video");
   video.srcObject = stream;
   video.muted = true;
@@ -73,7 +76,7 @@ export default function Host() {
     const pcBackend = new RTCPeerConnection(STUN_SERVERS);
     pcBackendRef.current = pcBackend;
 
-    const limitedTrack = createFrameLimitedTrack(remoteStream, 15);
+    const limitedTrack = createFrameLimitedTrack(remoteStream, 10);
     pcBackend.addTrack(limitedTrack);
 
     pcBackend.addTransceiver("video", { direction: "sendrecv" });
@@ -128,7 +131,9 @@ export default function Host() {
         <div className="flex flex-col justify-center gap-6 flex-[2]">
           {roomId && (
             <>
-              <p className="text-sm text-muted-foreground">Share this link with your phone:</p>
+              <p className="text-sm text-muted-foreground">
+                Share this link with your phone:
+              </p>
               <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg p-2">
                 <a
                   href={joinUrl}
@@ -157,7 +162,11 @@ export default function Host() {
         <div className="flex-[1] flex justify-center items-center relative w-full">
           <VideoBox
             stream={processedStream ?? remoteStream}
-            label={processedStream ? "Processed (Backend YOLO)" : "Mobile Stream (raw)"}
+            label={
+              processedStream
+                ? "Processed (Backend YOLO)"
+                : "Mobile Stream (raw)"
+            }
           />
         </div>
       </main>

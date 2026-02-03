@@ -18,7 +18,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
 from aiortc.contrib.media import MediaBlackhole
 
 # -------------------- Config --------------------
-INFER_EVERY_N_FRAMES = int(os.getenv("INFER_EVERY_N_FRAMES", "3"))
+INFER_EVERY_N_FRAMES = int(os.getenv("INFER_EVERY_N_FRAMES", "10"))
 METRICS_FILE = Path("metrics.json")  # metrics output
 
 # -------------------- Load YOLO once --------------------
@@ -58,6 +58,9 @@ class YOLOOverlayTrack(MediaStreamTrack):
         self.metrics = []
         self.bench_start_time = time.time()
 
+        # Store last detection results to persist boxes
+        self.last_results = None
+
     async def recv(self) -> av.VideoFrame:
         while True:
             frame: av.VideoFrame = await self.track.recv()
@@ -75,40 +78,47 @@ class YOLOOverlayTrack(MediaStreamTrack):
             img_bgr = frame.to_ndarray(format="bgr24")
             recv_ts = int(time.time() * 1000)  # ms
 
-            # YOLO inference
-            t0 = time.time()
-            results = _yolo_model(img_bgr)
-            t1 = time.time()
-            inference_ts = int(t1 * 1000)
+            # YOLO inference only every N frames
+            if self.frame_id % INFER_EVERY_N_FRAMES == 0:
+                t0 = time.time()
+                results = _yolo_model(img_bgr)
+                t1 = time.time()
+                inference_ts = int(t1 * 1000)
 
-            # Draw detections
-            drawn = results.render()[0]
+                # Update last results
+                self.last_results = results
 
-            # Record metrics
-            self.metrics.append({
-                "frame_id": self.frame_id,
-                "capture_ts": int(frame.pts * frame.time_base * 1000),  # approximate
-                "recv_ts": recv_ts,
-                "inference_ts": inference_ts,
-                "detections": [
-                    {
-                        "label": results.names[int(cls)],
-                        "score": float(conf),
-                        "xmin": float(box[0] / frame.width),
-                        "ymin": float(box[1] / frame.height),
-                        "xmax": float(box[2] / frame.width),
-                        "ymax": float(box[3] / frame.height)
-                    }
-                    for *box, conf, cls in results.xyxy[0].cpu().numpy()
-                ],
-            })
+                # Record metrics
+                self.metrics.append({
+                    "frame_id": self.frame_id,
+                    "capture_ts": int(frame.pts * frame.time_base * 1000),  # approximate
+                    "recv_ts": recv_ts,
+                    "inference_ts": inference_ts,
+                    "detections": [
+                        {
+                            "label": results.names[int(cls)],
+                            "score": float(conf),
+                            "xmin": float(box[0] / frame.width),
+                            "ymin": float(box[1] / frame.height),
+                            "xmax": float(box[2] / frame.width),
+                            "ymax": float(box[3] / frame.height)
+                        }
+                        for *box, conf, cls in results.xyxy[0].cpu().numpy()
+                    ],
+                })
 
-            # Save metrics every 30s
-            if time.time() - self.bench_start_time >= 30:
-                with METRICS_FILE.open("w") as f:
-                    json.dump(self.metrics, f, indent=2)
-                self.bench_start_time = time.time()
-                self.metrics = []
+                # Save metrics every 30s
+                if time.time() - self.bench_start_time >= 30:
+                    with METRICS_FILE.open("w") as f:
+                        json.dump(self.metrics, f, indent=2)
+                    self.bench_start_time = time.time()
+                    self.metrics = []
+
+            # Draw last known detections on every frame
+            if self.last_results:
+                drawn = self.last_results.render()[0]
+            else:
+                drawn = img_bgr
 
             # Convert back to VideoFrame
             out = av.VideoFrame.from_ndarray(drawn, format="bgr24")
